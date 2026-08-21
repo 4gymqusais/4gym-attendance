@@ -47,3 +47,12 @@ temp/
 # Package lock files (optional - include for consistency)
 package-lock.json
 yarn.lock
+
+# Secrets — never commit these
+*.env
+.env.*
+!.env.example
+backend-env.txt
+*-env.txt
+*.pem
+*.key
