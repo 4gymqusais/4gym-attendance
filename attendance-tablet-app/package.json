@@ -16,10 +16,14 @@
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": [
-      "react-app"
-    ]
-  },
+  "extends": [
+    "react-app"
+  ],
+  "rules": {
+    "react-hooks/exhaustive-deps": "off",
+    "no-unused-vars": "off"
+  }
+}
   "browserslist": {
     "production": [
       ">0.2%",
