@@ -32,13 +32,24 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 // ============ DATABASE CONNECTION ============
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/gym_attendance';
+// Accept either name. Railway's MongoDB plugin provisions MONGO_URL; older
+// docs and .env.example use MONGO_URI. Previously this silently fell back to
+// localhost, so a missing/misnamed variable looked like a healthy boot with a
+// database that was never there. Fail loudly instead.
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGO_URL;
+if (!MONGO_URI) {
+  console.error('FATAL: neither MONGO_URI nor MONGO_URL is set.');
+  process.exit(1);
+}
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ MongoDB Connected'))
-.catch(err => console.log('❌ MongoDB Connection Error:', err));
+.then(() => console.log('MongoDB connected'))
+.catch(err => {
+  console.error('FATAL: MongoDB connection failed:', err.message);
+  process.exit(1);
+});
 
 // ============ SCHEMAS & MODELS ============
 

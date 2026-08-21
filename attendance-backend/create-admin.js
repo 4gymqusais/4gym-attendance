@@ -16,7 +16,7 @@
 const mongoose = require('mongoose');
 const bcrypt   = require('bcryptjs');
 
-const MONGO_URI      = process.env.MONGO_URI;
+const MONGO_URI      = process.env.MONGO_URI || process.env.MONGO_URL;
 const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_NAME     = process.env.ADMIN_NAME  || 'Admin';
@@ -29,7 +29,7 @@ const ADMIN_ROLE = 'owner';
 
 function fail(msg) { console.error('X ' + msg); process.exit(1); }
 
-if (!MONGO_URI)      fail('MONGO_URI is not set.');
+if (!MONGO_URI)      fail('Neither MONGO_URI nor MONGO_URL is set.');
 if (!ADMIN_EMAIL)    fail('ADMIN_EMAIL is not set.');
 if (!ADMIN_PASSWORD) fail('ADMIN_PASSWORD is not set.');
 if (ADMIN_PASSWORD.length < 10) fail('ADMIN_PASSWORD should be at least 10 characters.');
