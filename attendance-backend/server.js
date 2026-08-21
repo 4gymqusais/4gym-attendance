@@ -102,7 +102,11 @@ const Attendance = mongoose.model('Attendance', attendanceSchema);
 const Leave = mongoose.model('Leave', leaveSchema);
 
 // ============ AUTHENTICATION MIDDLEWARE ============
-const JWT_SECRET = process.env.JWT_SECRET || 'gym_attendance_secret_key_2024_change_in_production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET is not set. Refusing to start with a default secret.');
+  process.exit(1);
+}
 
 const authenticateToken = (req, res, next) => {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -120,23 +124,37 @@ const authenticateToken = (req, res, next) => {
 // Register new user
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, phone, role, gym_id } = req.body;
+    const { name, email, password, phone, gym_id } = req.body;
+
+    // SECURITY: `role` is deliberately NOT read from the request body. Public
+    // registration always creates a staff account. Elevating someone to
+    // manager/owner is done by an existing owner via /api/staff/:id/role,
+    // or offline with create-admin.js.
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email and password are required' });
+    }
+    if (String(password).length < 10) {
+      return res.status(400).json({ error: 'Password must be at least 10 characters' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
 
     // Check if user already exists
-    if (await User.findOne({ email })) {
+    if (await User.findOne({ email: normalizedEmail })) {
       return res.status(400).json({ error: 'Email already exists' });
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
+    const hashedPassword = await bcrypt.hash(password, 12);
+
     // Create user
     const user = new User({
       name,
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
       phone,
-      role: role || 'staff',
+      role: 'staff',
       gym_id
     });
 
@@ -151,7 +169,7 @@ app.post('/api/auth/register', async (req, res) => {
       user: {
         id: user._id,
         name,
-        email,
+        email: user.email,
         role: user.role
       }
     });
@@ -164,7 +182,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email }).populate('gym_id');
+    const user = await User.findOne({ email: String(email || '').trim().toLowerCase() }).populate('gym_id');
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -336,6 +354,35 @@ app.get('/api/staff', authenticateToken, async (req, res) => {
 });
 
 // Get staff statistics
+// Change a user's role — owners only
+app.put('/api/staff/:staff_id/role', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Only an owner can change roles' });
+    }
+
+    const { role } = req.body;
+    if (!['staff', 'manager', 'owner'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    const target = await User.findById(req.params.staff_id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+
+    // Do not allow an owner to demote themselves and lock everyone out.
+    if (String(target._id) === String(req.user.id) && role !== 'owner') {
+      return res.status(400).json({ error: 'You cannot change your own owner role' });
+    }
+
+    target.role = role;
+    await target.save();
+
+    res.json({ message: 'Role updated', user: { id: target._id, email: target.email, role: target.role } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/staff/:staff_id/stats', authenticateToken, async (req, res) => {
   try {
     const { staff_id } = req.params;
