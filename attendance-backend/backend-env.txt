@@ -1,4 +1,0 @@
-MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/gym_attendance
-PORT=5000
-JWT_SECRET=gym_qusais_attendance_secret_key_2024_change_in_production_xyz123
-NODE_ENV=development
