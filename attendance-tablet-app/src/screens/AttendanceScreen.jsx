@@ -104,7 +104,11 @@ function AttendanceScreen({ user, gym, onLogout }) {
       
       const formData = new FormData();
       formData.append('photo', blob, 'checkin.jpg');
-      formData.append('gym_id', gym?._id || 'default-gym');
+      // Only send a real gym id. Sending the string 'default-gym' failed
+      // ObjectId casting server-side and surfaced as a generic failure.
+      if (gym?._id) {
+        formData.append('gym_id', gym._id);
+      }
       formData.append('latitude', 25.2518);
       formData.append('longitude', 55.3783);
       formData.append('accuracy', 10);
