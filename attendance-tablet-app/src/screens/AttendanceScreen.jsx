@@ -18,6 +18,9 @@ function AttendanceScreen({ user, gym, onLogout }) {
   useEffect(() => {
     startCamera();
     fetchTodayStatus();
+    // Release the camera when leaving the screen, otherwise the light stays on.
+    return () => stopCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startCamera = async () => {
@@ -32,7 +35,16 @@ function AttendanceScreen({ user, gym, onLogout }) {
       }
       setCameraActive(true);
     } catch (err) {
-      setMessage('❌ Camera access denied. Please enable camera permissions.');
+      if (err.name === 'NotAllowedError') {
+        setMessage('❌ Camera permission denied. Allow camera access for this site, then reload.');
+      } else if (err.name === 'NotFoundError') {
+        setMessage('❌ No camera found on this device.');
+      } else if (err.name === 'NotReadableError') {
+        setMessage('❌ The camera is in use by another app. Close it and reload.');
+      } else {
+        setMessage('❌ Could not start the camera: ' + err.message);
+      }
+      setCameraActive(false);
     }
   };
 
@@ -44,19 +56,39 @@ function AttendanceScreen({ user, gym, onLogout }) {
   };
 
   const capturePhoto = () => {
-    setLoading(true);
     const canvas = canvasRef.current;
     const video = videoRef.current;
 
-    if (canvas && video) {
+    if (!canvas || !video) {
+      setMessage('❌ Camera not ready yet. Give it a moment and try again.');
+      return;
+    }
+
+    // readyState < 2 means no frame has arrived yet — drawImage would produce
+    // a blank image rather than failing, so check before drawing.
+    if (!video.videoWidth || video.readyState < 2) {
+      setMessage('❌ No camera image yet. Check the camera permission and try again.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Match the canvas to the real frame size, otherwise the capture is
+      // stretched to whatever the hardcoded canvas dimensions were.
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = canvas.toDataURL('image/jpeg');
-      setPhoto(imageData);
+
+      setPhoto(canvas.toDataURL('image/jpeg', 0.9));
       setFaceDetected(true);
-      setMessage('✅ Photo captured! Face detected.');
+      setMessage('✅ Photo captured.');
+    } catch (err) {
+      setMessage('❌ Could not capture the photo: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCheckIn = async () => {
@@ -184,30 +216,31 @@ function AttendanceScreen({ user, gym, onLogout }) {
 
       <div className="attendance-content">
         <div className="camera-section">
+          {/* Always mounted: capturePhoto() needs this ref BEFORE a photo exists. */}
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+          {/* The <video> stays mounted and is only hidden while a photo is
+              shown. Unmounting it drops srcObject, so Retake used to come back
+              to a black feed with no way to recover except a page reload. */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="video-feed"
+            style={{ display: photo ? 'none' : 'block' }}
+          />
+
           {!photo ? (
-            <>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className="video-feed"
-              />
-              <button
-                onClick={capturePhoto}
-                className="capture-btn"
-                disabled={loading}
-              >
-                📷 Capture Photo
-              </button>
-            </>
+            <button
+              onClick={capturePhoto}
+              className="capture-btn"
+              disabled={loading}
+            >
+              📷 Capture Photo
+            </button>
           ) : (
             <>
-              <canvas
-                ref={canvasRef}
-                width="400"
-                height="300"
-                style={{ display: 'none' }}
-              />
               <img src={photo} alt="Captured" className="photo-preview" />
               <div className="photo-buttons">
                 <button
