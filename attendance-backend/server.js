@@ -221,8 +221,23 @@ app.post('/api/auth/login', async (req, res) => {
 // Check-in
 app.post('/api/attendance/check-in', authenticateToken, upload.single('photo'), async (req, res) => {
   try {
-    const { latitude, longitude, accuracy, gym_id } = req.body;
+    const { latitude, longitude, accuracy } = req.body;
     const user_id = req.user.id;
+
+    // The client used to send the literal string 'default-gym' when the user had
+    // no gym, which failed ObjectId casting and surfaced as a bare 500. Resolve
+    // the gym from the request if it is a real id, otherwise from the user's own
+    // record, and say plainly when there is none.
+    let gym_id = req.body.gym_id;
+    if (!gym_id || !mongoose.Types.ObjectId.isValid(gym_id)) {
+      const me = await User.findById(user_id).select('gym_id');
+      gym_id = me?.gym_id;
+    }
+    if (!gym_id) {
+      return res.status(400).json({
+        error: 'No gym is linked to your account yet. An owner needs to create a gym and assign you to it before you can check in.'
+      });
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -274,13 +289,23 @@ app.post('/api/attendance/check-out', authenticateToken, upload.single('photo'),
     const { attendance_id, latitude, longitude, accuracy } = req.body;
     const user_id = req.user.id;
 
-    const attendance = await Attendance.findOne({
-      _id: attendance_id,
-      user_id
-    });
+    // Fall back to today's open record when the client has no attendance_id
+    // (e.g. the page was reloaded after checking in).
+    let attendance = null;
+    if (attendance_id && mongoose.Types.ObjectId.isValid(attendance_id)) {
+      attendance = await Attendance.findOne({ _id: attendance_id, user_id });
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      attendance = await Attendance.findOne({
+        user_id,
+        date: { $gte: today },
+        check_out_time: null
+      }).sort({ check_in_time: -1 });
+    }
 
     if (!attendance) {
-      return res.status(404).json({ error: 'Attendance record not found' });
+      return res.status(404).json({ error: 'No open check-in found for today.' });
     }
 
     if (attendance.check_out_time) {
@@ -314,9 +339,17 @@ app.post('/api/attendance/check-out', authenticateToken, upload.single('photo'),
 // Get today's attendance
 app.get('/api/attendance/today', authenticateToken, async (req, res) => {
   try {
-    const { gym_id } = req.query;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    // Same as check-in: ignore a non-ObjectId gym_id (the client used to send
+    // the string 'default') and fall back to the caller's own gym.
+    let gym_id = req.query.gym_id;
+    if (!gym_id || !mongoose.Types.ObjectId.isValid(gym_id)) {
+      const me = await User.findById(req.user.id).select('gym_id');
+      gym_id = me?.gym_id;
+    }
+    if (!gym_id) return res.json([]);
 
     const attendance = await Attendance.find({
       gym_id,
